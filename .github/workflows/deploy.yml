@@ -1,0 +1,26 @@
+name: Deploy to VPS 
+
+on:
+  push:
+    branches:
+      - main # Jalankan otomatisasi hanya jika ada push ke branch main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Deploy via SSH to Herza VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}       # IP VPS lo (disembunyikan)
+          username: ${{ secrets.VPS_USER }}   # Username root (disembunyikan)
+          key: ${{ secrets.VPS_SSH_KEY }}     # SSH Private Key lo (disembunyikan)
+          port: 22
+          script: |
+            cd /home/zazhran/tugas-uas || mkdir -p /home/zazhran/tugas-uas && cd /home/zazhran/tugas-uas
+            docker compose down
+            docker compose up -d --build
