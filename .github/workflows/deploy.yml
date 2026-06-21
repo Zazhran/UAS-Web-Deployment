@@ -22,5 +22,6 @@ jobs:
           port: 22
           script: |
             cd /home/zazhran/tugas-uas || mkdir -p /home/zazhran/tugas-uas && cd /home/zazhran/tugas-uas
+            git pull origin main
             docker compose down
             docker compose up -d --build
