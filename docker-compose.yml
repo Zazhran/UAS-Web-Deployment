@@ -1,14 +1,5 @@
-version: '3.8'
-
 services:
   web-uas:
-    build: .
-    container_name: aplikasi_uas_html
-    restart: always
-    ports:
-      - "8080:80"
-
-  monitoring:
     image: nginx:latest
     container_name: web_uas_zazhran
     ports:
