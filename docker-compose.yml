@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   web-uas:
     image: nginx:latest
@@ -7,3 +9,15 @@ services:
     volumes:
       - ./html:/usr/share/nginx/html
     restart: always
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: monitoring_uas_zazhran
+    ports:
+      - "3001:3001" 
+    volumes:
+      - uptime-kuma-data:/app/data
+    restart: always
+
+volumes:
+  uptime-kuma-data:
