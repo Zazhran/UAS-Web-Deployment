@@ -1,9 +1,8 @@
 # <Nama Aplikasi> — Production Deployment
 
 > UAS Sistem Operasi + Jaringan Komputer — Kelas Sentul, Sesi 16
-> Kelompok: `<nama anggota 1, 2, 3>`
 
-Static HTML site yang dideploy ke VPS dengan domain HTTPS (via nginx + certbot), auto-deploy lewat GitHub Actions, monitoring via Uptime Kuma, dan backup harian otomatis.
+Static HTML site yang dideploy ke VPS dengan domain HTTPS (via nginx + certbot), auto-deploy lewat GitHub Actions, monitoring via Uptime Kuma, dan backup harian otomatis menggunakan layanan fratis dari Backblaze.
 
 ---
 
@@ -37,77 +36,69 @@ GitHub Repo ──trigger──► GitHub Actions (CI/CD)
 3. User akses domain → DNS resolve ke IP VPS → request HTTPS ke nginx → nginx `proxy_pass` ke App Container.
 4. nginx jadi reverse proxy; SSL cert dikelola **certbot** (Let's Encrypt), auto-renew via systemd timer / cron.
 5. **Uptime Kuma** polling endpoint tiap menit untuk cek uptime.
-6. **Cron job** backup data aplikasi tiap hari ke Cloud Storage eksternal.
+6. **Cron job** backup data aplikasi tiap hari ke Cloud Storage eksternal menggunakan layanan gratis dari Backblaze.
 
 ### Tech Stack
 | Layer | Tools |
 |---|---|
-| App | Static HTML (`<nama file, mis. index.html>`) |
+| App | Static HTML (`<index.html>`) |
 | Web server / reverse proxy | nginx |
 | SSL | certbot (Let's Encrypt) |
 | Container | Docker + Docker Compose |
 | CI/CD | GitHub Actions |
 | Monitoring | Uptime Kuma |
-| Backup | cron job → `<S3 / R2 / B2, sebutkan provider>` |
-| VPS Provider | `<nama provider, mis. DigitalOcean / Vultr / Contabo>` |
-| Domain | `<nama domain>` |
+| Backup | cron job → `<B2, Backblaze>` |
+| VPS Provider | `<Herza>` |
+| Domain | `<hi-hima.my.id>` |
 
----
-
-## 2. Pembagian Peran Kelompok
-
-| Nama | Peran / Tanggung jawab |
-|---|---|
-| `<anggota 1>` | `<mis. VPS setup, nginx, certbot>` |
-| `<anggota 2>` | `<mis. CI/CD pipeline, GitHub Actions>` |
-| `<anggota 3>` | `<mis. monitoring, backup, dokumentasi>` |
-
----
-
-## 3. Struktur Repo
+## 2. Struktur Repo
 
 ```
 .
-├── index.html              # aplikasi static
-├── docker-compose.yml       # definisi App Container (+ Uptime Kuma jika di-bundle)
-├── nginx/
-│   └── <domain>.conf        # config reverse proxy
+UAS-WEB-DEPLOYMENT/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml       # CI/CD pipeline
-├── scripts/
-│   └── backup.sh            # script backup ke cloud storage
+│       └── deploy.yml        # CI/CD pipeline — trigger saat push ke main
+├── html/
+│   └── index.html            # aplikasi static yang di-serve nginx
+├── docker-compose.yml        # definisi App Container (nginx + static html)
 └── README.md
 ```
 
 ---
 
-## 4. Setup & Deployment
+## 3. Setup & Deployment
 
-### 4.1 Domain & DNS
-- Domain: `<nama domain>`
-- DNS A record mengarah ke IP VPS: `<IP VPS>`
-- Registrar: `<nama registrar>`
+### 3.1 Domain & DNS
+- Main Domain                       : `<hi-hima.my.id>`
+- Sub Domain                        : `<www.hi-hima.my.id>`
+- Monitoring Domain                 : `<monitor.hi-hima.my.id>`
+- DNS A record mengarah ke IP VPS   : `<103.168.146.195>`
 
-### 4.2 VPS
-- Provider: `<nama provider>`
-- OS: `<mis. Ubuntu 22.04>`
-- Spesifikasi: `<RAM/CPU/disk>`
-- Akses SSH: `ssh <user>@<domain atau IP>`
+### 3.2 VPS
+- Provider: `<Herza>`
+- OS: `<Ubuntu 24.04>`
+- Spesifikasi: `<RAM 1GB/1CPU/disk>`
 
-### 4.3 nginx + HTTPS (certbot)
-Config reverse proxy ada di `/etc/nginx/sites-available/<domain>`:
+### 3.3 nginx + HTTPS (certbot)
 
 ```nginx
 server {
-    listen 80;
-    server_name <domain>;
+    server_name hi-hima.my.id www.hi-hima.my.id;
 
     location / {
-        proxy_pass http://localhost:<port_app>;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/hi-hima.my.id/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/hi-hima.my.id/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
 }
 ```
 
@@ -123,7 +114,7 @@ sudo systemctl status certbot.timer
 sudo certbot renew --dry-run
 ```
 
-### 4.4 CI/CD (GitHub Actions)
+### 3.4 CI/CD (GitHub Actions)
 File: `.github/workflows/deploy.yml`
 
 Trigger: setiap push ke `main` →
@@ -137,39 +128,42 @@ Secrets yang dibutuhkan di GitHub repo (`Settings → Secrets`):
 - `VPS_USER`
 - `VPS_SSH_KEY`
 
-### 4.5 Container (Docker Compose)
+### 3.5 Container (Docker Compose)
 ```yaml
+version: '3.8'
+
 services:
-  app:
-    image: nginx:alpine
-    volumes:
-      - ./:/usr/share/nginx/html:ro
+  web-uas:
+    image: nginx:latest
+    container_name: web_uas_zazhran
     ports:
-      - "<port_app>:80"
-    restart: unless-stopped
+      - "8080:80"
+    volumes:
+      - ./html:/usr/share/nginx/html
+    restart: always
 
   uptime-kuma:
     image: louislam/uptime-kuma:1
+    container_name: monitoring_uas_zazhran
     ports:
-      - "3001:3001"
+      - "3001:3001" 
     volumes:
       - uptime-kuma-data:/app/data
-    restart: unless-stopped
+    restart: always
 
 volumes:
   uptime-kuma-data:
 ```
 
-### 4.6 Monitoring
-- Dashboard Uptime Kuma: `http://<IP_VPS>:3001` (atau subdomain jika di-proxy)
-- Endpoint yang dimonitor: `https://<domain>`
+### 3.6 Monitoring
+- Dashboard Uptime Kuma: `http://monitor.hi-hima.my.id`
 - Interval check: 60 detik
 
-### 4.7 Logging
+### 3.7 Logging
 - Log aplikasi (nginx access/error): `docker logs <nama_container_app>`
 - Atau via journalctl jika service dijalankan langsung: `journalctl -u <nama_service> -f`
 
-### 4.8 Backup
+### 3.8 Backup
 Cron job harian (`crontab -e` di VPS):
 ```bash
 0 2 * * * /home/<user>/scripts/backup.sh >> /var/log/backup.log 2>&1
@@ -178,84 +172,29 @@ Cron job harian (`crontab -e` di VPS):
 Isi `backup.sh` (contoh, sesuaikan dengan provider storage):
 ```bash
 #!/bin/bash
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-tar -czf /tmp/backup_$TIMESTAMP.tar.gz /path/to/app/data
-aws s3 cp /tmp/backup_$TIMESTAMP.tar.gz s3://<bucket-name>/backups/
-rm /tmp/backup_$TIMESTAMP.tar.gz
+BACKUP_DIR="/home/zazhran/tugas-uas/html"
+DEST_ZIP="/home/zazhran/backup_uas_$(date +%Y%m%d_%H%M%S).zip"
+BUCKET_NAME="backup-uas-zazhran"
+
+echo "Memulai backup folder HTML..."
+zip -r $DEST_ZIP $BACKUP_DIR
+
+echo "Mengirim file ke Cloud Storage Backblaze..."
+rclone copy $DEST_ZIP mybackup:$BUCKET_NAME --s3-no-check-bucket
+
+rm $DEST_ZIP
 ```
 
 ---
 
-## 5. Runbook
 
-### 5.1 Restart Procedure
-```bash
-ssh <user>@<domain>
-cd /path/to/project
-docker compose restart app
-# verify
-docker ps -a
-curl -I https://<domain>
-```
+## 4. Lessons Learned
 
-### 5.2 Rollback Procedure
-```bash
-# Lihat history commit
-git log --oneline -5
-
-# Revert commit terakhir di main
-git revert HEAD
-git push origin main
-# GitHub Actions otomatis re-deploy versi sebelumnya
-```
-
-Jika perlu rollback manual di VPS (tanpa CI/CD):
-```bash
-ssh <user>@<domain>
-cd /path/to/project
-git pull
-docker compose down
-docker compose up -d --build
-```
-
-### 5.3 Restore from Backup
-```bash
-# Download backup terbaru dari cloud storage
-aws s3 cp s3://<bucket-name>/backups/<file_backup_terbaru> /tmp/
-
-# Extract
-tar -xzf /tmp/<file_backup_terbaru> -C /path/to/restore
-
-# Restart service terkait
-docker compose restart app
-```
-
-### 5.4 Troubleshooting Cepat (checklist)
-| Symptom | Cek |
-|---|---|
-| Site unreachable | `dig <domain>`, `curl -I https://<domain>`, `ufw status` |
-| HTTPS error | `sudo certbot certificates`, `nginx -t`, `tail /var/log/nginx/error.log` |
-| App down | `docker ps -a`, `docker logs <container>` |
-| Disk penuh | `df -h`, cari junk file besar (`du -sh /var/log/* \| sort -h`) |
-| Deploy gagal | Cek tab **Actions** di GitHub, baca log step yang gagal |
-
+- `<Simulasi Web deployment>`
+Meskipun ini diperuntukan untuk tugas, namun pengalaman yang didapatkan sudah bisa di aplikasikan bahkan bisa mulai menarik client
+- `<Jasa sewa lahan di VPS>`
+Saya membuka jasa sewa lahan VPS untuk teman teman saya dan ternyata memberi saya pengalaman seperti memanage access antar user seperti ketika meminta akses NGINX dan Certificate HTTPS hanya bisa dilakukan oleh pemilik tahta tertinggi yaitu root atau saya sendiri menggunakan sudo.
 ---
 
-## 6. Operational Notes
-
-- **Lokasi log nginx**: `/var/log/nginx/access.log`, `/var/log/nginx/error.log`
-- **Lokasi log app**: `docker logs <nama_container>` atau `<path log app jika static file served langsung>`
-- **Cara cek monitoring**: buka `http://<IP_VPS>:3001`, lihat status uptime endpoint `<domain>`
-- **File `.env`** (jika ada): lokasi `/path/to/project/.env`, isi variable `<sebutkan, mis. API_KEY, DB_CONN>` — **jangan commit ke repo**, sudah masuk `.gitignore`
-- **Cara cek sertifikat SSL**: `sudo certbot certificates`
-
----
-
-## 7. Lessons Learned
-
-- `<isi setelah sesi 9–15: apa yang sempat error, gimana cara fix-nya, apa yang dipelajari>`
-
----
-
-## 8. Referensi
-- Arsitektur sistem & alur deployment: dokumen UAS Sesi 16, STMIK TAZKIA
+## 5. Referensi
+- https://software.endy.muhardin.com/devops/deployment-microservice-kere-hore-1/
