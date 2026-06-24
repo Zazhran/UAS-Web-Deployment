@@ -21,7 +21,14 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}     # SSH Private Key lo (disembunyikan)
           port: 22
           script: |
-            cd /home/zazhran/tugas-uas || mkdir -p /home/zazhran/tugas-uas && cd /home/zazhran/tugas-uas
+            
+            cd /home/zazhran/tugas-uas
+            
+            
+            git reset --hard origin/main
+            
+            
             git pull origin main
-            docker compose down
+            
+            
             docker compose up -d --build
